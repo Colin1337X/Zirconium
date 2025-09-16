@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Local Terminal Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link id="brandFavicon" rel="icon" href="">
+  <link id="brandCustomCss" rel="stylesheet" href="" disabled>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <header class="topbar panel">
+    <div class="brand">
+      <img id="brandLogo" alt="" hidden style="height:22px;vertical-align:middle;margin-right:8px">
+      <span id="appName">Local Terminal Chat</span>
+    </div>
+    <div class="grow"></div>
+    <div class="controls">
+      <label>Provider
+        <select id="provider">
+          <option>ollama</option>
+          <option>openrouter</option>
+          <option>chutes</option>
+        </select>
+      </label>
+      <label>Model
+        <select id="model">
+          <option>llama3.1:8b</option>
+        </select>
+      </label>
+      <label>Profile
+        <select id="profile"></select>
+      </label>
+      <label>Thread
+        <select id="thread"></select>
+      </label>
+      <button id="newThread" class="sm">+ Thread</button>
+      <button id="loreBtn" title="Lore names (comma-separated)">📚</button>
+      <button id="ragBtn"  title="Attached docs (RAG)">📎</button>
+      <a class="sm" href="/admin" target="_blank" title="Host admin">Admin</a>
+    </div>
+  </header>
+
+  <main>
+    <div id="log" class="panel log"></div>
+    <div class="composer panel">
+      <textarea id="prompt" rows="2" placeholder="Type your message… (Shift+Enter for newline)"></textarea>
+      <button id="sendBtn" class="primary">Send</button>
+    </div>
+  </main>
+
+  <!-- Lore modal -->
+  <div id="lorePanel" class="modal" hidden>
+    <div class="panel">
+      <header>
+        <strong>Lore sources</strong>
+        <button id="closeLore">✕</button>
+      </header>
+      <section>
+        <p>Enter lore collection names (comma-separated). These are loaded from <code>data/lore/&lt;name&gt;.json</code>.</p>
+        <input id="loreNames" size="60" placeholder="e.g. world,monsters,items">
+      </section>
+    </div>
+  </div>
+
+  <!-- RAG modal -->
+  <div id="ragPanel" class="modal" hidden>
+    <div class="panel">
+      <header>
+        <strong>Attached Documents (RAG)</strong>
+        <button id="closeRag">✕</button>
+      </header>
+      <section>
+        <p>Per-thread document store used for retrieval each turn.</p>
+        <div id="ragList"></div>
+        <p id="ragSummary" style="opacity:.8"></p>
+      </section>
+      <hr>
+      <section>
+        <h4>Add files (drag & drop onto the main window too)</h4>
+        <input type="file" id="ragFiles" multiple accept=".txt,.md,.csv,.json,.log,.html,.css,.js,.pdf">
+        <button id="ragUpload">Upload & Embed</button>
+        <button id="ragClear" class="danger">Clear All for this Thread</button>
+        <p><small>PDF support requires <code>PyPDF2</code> on the server. Other text formats are parsed as UTF-8.</small></p>
+      </section>
+    </div>
+  </div>
+
+  <!-- Refusal popup -->
+  <div id="refusalModal" class="modal" hidden>
+    <div class="panel">
+      <header>
+        <strong>Assistant refused the request</strong>
+        <button id="refusalClose">✕</button>
+      </header>
+      <section>
+        <p>The model returned a refusal-style response. Choose what to do:</p>
+        <details id="refusalDetails" style="margin:8px 0">
+          <summary>Show explanation</summary>
+          <pre id="refusalText" class="codeblock"></pre>
+        </details>
+        <div class="row btns">
+          <button id="refusalReask">Ask again politely</button>
+          <button id="refusalBypass" class="primary">Bypass & continue</button>
+          <button id="refusalCancel" class="danger">Cancel</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
