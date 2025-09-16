@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+
+# Local data (database, memory, lore, conversations)
+data/
+
+# Env secrets
+.env
