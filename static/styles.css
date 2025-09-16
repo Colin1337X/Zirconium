@@ -1,0 +1,114 @@
+/* styles.css — terminal-flavored, themeable via CSS vars */
+:root{
+  --bg:#0a0c0a;
+  --fg:#c8facc;
+  --muted:#8fb99b;
+  --panel:#0f110f;
+  --border:#1a1f1a;
+  --accent:#62ff80;
+  --danger:#ff6b6b;
+  --link:#7fe0ff;
+  --radius:8px;
+}
+
+* { box-sizing: border-box }
+html, body { height: 100% }
+body{
+  background:var(--bg);
+  color:var(--fg);
+  font:14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin:0;
+  line-height:1.45;
+}
+
+a { color: var(--link); text-decoration: none; border-bottom:1px dotted var(--link) }
+a:hover { opacity:.9 }
+
+.panel{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+}
+
+.topbar{
+  display:flex; align-items:center; gap:12px;
+  padding:8px 10px; margin:8px; position:sticky; top:0; z-index:10;
+}
+.brand{ display:flex; align-items:center; gap:8px; font-weight:700 }
+.grow{ flex:1 }
+.controls{ display:flex; flex-wrap:wrap; gap:8px; align-items:center }
+.controls label{ display:flex; gap:6px; align-items:center }
+.controls select, .controls button, .controls a.sm {
+  background:#0c0f0c; color:var(--fg);
+  border:1px solid var(--border); border-radius:var(--radius);
+  padding:6px 8px; font-size:13px;
+}
+.controls button.sm, .controls a.sm { padding:4px 8px }
+.controls a.sm { display:inline-block }
+
+main{ padding:8px; display:flex; flex-direction:column; gap:8px; height: calc(100vh - 70px) }
+
+.log{
+  flex:1; overflow:auto; padding:10px; white-space:pre-wrap; word-wrap:break-word;
+}
+
+.row.msg{ display:grid; grid-template-columns: 92px 1fr; gap:8px; margin:10px 0; align-items:start }
+.row.msg .label{ color:var(--muted); text-align:right; padding-top:4px; font-weight:700; opacity:.9 }
+.row.msg .bubble{
+  border:1px solid var(--border); border-radius:var(--radius);
+  padding:10px 12px; background:#0c0f0c;
+}
+.row.msg.user .bubble{ border-color: var(--accent) }
+.row.msg.system .bubble{ opacity:.9; font-style:italic }
+.code .bubble, .codeblock{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background:#0c0f0c; border:1px dashed var(--border);
+}
+
+.composer{ display:flex; gap:8px; padding:8px }
+.composer textarea{
+  flex:1; min-height:44px; max-height:180px; resize:vertical;
+  background:#0c0f0c; color:var(--fg); border:1px solid var(--border); border-radius:var(--radius);
+  padding:10px 12px;
+}
+.composer button{ min-width:90px }
+
+button{
+  background:#0c0f0c; color:var(--fg);
+  border:1px solid var(--border); border-radius:var(--radius);
+  padding:8px 10px; cursor:pointer;
+}
+button.primary{ background:var(--accent); color:#0a0c0a; border:none; font-weight:700 }
+button.danger{ background:var(--danger); color:#0a0c0a; border:none; font-weight:700 }
+button:hover{ filter:brightness(1.03) }
+
+input, select{
+  background:#0c0f0c; color:var(--fg); border:1px solid var(--border); border-radius:var(--radius);
+  padding:6px 8px;
+}
+
+/* Modals */
+.modal{
+  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+  background: rgba(0,0,0,0.4);
+}
+.modal[hidden]{ display:none }
+.modal .panel{ width:min(780px, 92vw); padding:10px 12px }
+.modal header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px }
+.modal section p{ margin:6px 0 }
+.modal .row.btns{ display:flex; gap:8px; margin-top:8px }
+
+/* Drag UI hint */
+body.dragging { outline:2px dashed var(--accent); outline-offset:-6px }
+
+/* Scrollbar (nice-to-have) */
+.log::-webkit-scrollbar { width: 10px }
+.log::-webkit-scrollbar-thumb { background: #1b251b; border-radius: 6px; border:1px solid #223322 }
+.log::-webkit-scrollbar-track { background: #0c0f0c }
+
+/* Small screens */
+@media (max-width: 720px){
+  .row.msg{ grid-template-columns: 76px 1fr }
+  .controls{ gap:6px }
+  .topbar{ flex-wrap:wrap }
+}
