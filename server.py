@@ -1,17 +1,24 @@
-# server.py — username+password auth; providers (ollama/openrouter/chutes); profiles/threads;
-# themes/branding; RAG; host-only admin; telemetry dashboard.  (NO refusal detection)
+# server.py — username+password auth; providers (ollama/openrouter/chutes); branding/themes; RAG;
+# host-only admin; telemetry dashboard; customizable MOTD; RPG status tracker (RimWorld-ish).
 
 from flask import Flask, request, Response, send_from_directory, jsonify, stream_with_context, session
-import os, io, json, time, uuid, pathlib, requests, re, math, sqlite3
+import os, io, json, time, uuid, pathlib, requests, re, math, sqlite3, platform, shutil, socket, random
+
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 
-# ---------- Optional PDF parser ----------
+# ---------- Optional deps ----------
 try:
-    import PyPDF2  # pip install PyPDF2 (optional)
+    import PyPDF2
     HAS_PDF = True
 except Exception:
     HAS_PDF = False
+
+try:
+    import psutil
+    HAS_PSUTIL = True
+except Exception:
+    HAS_PSUTIL = False
 
 # ---------- Paths ----------
 BASE = pathlib.Path(__file__).parent.resolve()
@@ -20,15 +27,18 @@ CONV_DIR = DATA / "conversations"; CONV_DIR.mkdir(exist_ok=True)
 MEM_FILE = DATA / "memory.json"
 LORE_DIR = DATA / "lore"; LORE_DIR.mkdir(exist_ok=True)
 RAG_DIR = DATA / "rag"; RAG_DIR.mkdir(exist_ok=True)
+BRAND_DIR = DATA / "branding"; BRAND_DIR.mkdir(exist_ok=True)
+THEMES_DIR = BRAND_DIR / "themes"; THEMES_DIR.mkdir(exist_ok=True)
+BRANDING_FILE = BRAND_DIR / "branding_themes.json"
 PROVIDERS_FILE = DATA / "providers.json"
 SERVER_STATE_FILE = DATA / "server_state.json"
 DB_PATH = DATA / "app.db"
 
-# ---------- Branding (Themes) ----------
-BRAND_DIR = DATA / "branding"; BRAND_DIR.mkdir(exist_ok=True)
-THEMES_DIR = BRAND_DIR / "themes"; THEMES_DIR.mkdir(exist_ok=True)
-BRANDING_FILE = BRAND_DIR / "branding_themes.json"
+# New config files
+MOTD_FILE = DATA / "motd.json"  # ascii + list items
+RPG_DIR = DATA / "rpg"; RPG_DIR.mkdir(exist_ok=True)
 
+# ---------- Branding (Themes) ----------
 DEFAULT_THEME = {
     "slug": "default",
     "app_name": "Local Terminal Chat",
@@ -91,7 +101,6 @@ def get_active_theme():
 app = Flask(__name__, static_folder="static")
 app.secret_key = os.environ.get("FLASK_SECRET", "dev-secret-change-me")
 app.config.update(SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=False)
-
 AUTH_TOKEN = os.environ.get("CHAT_AUTH_TOKEN")  # optional LAN gate
 
 # ---------- Host-only admin detection ----------
@@ -166,25 +175,24 @@ def db_init():
     con.commit(); con.close()
 db_init()
 
-# ---------- Server state ----------
+# ---------- Utilities ----------
+def load_json(path, default):
+    try: return json.loads(path.read_text("utf-8"))
+    except Exception: return default
+def save_json(path, obj):
+    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), "utf-8")
+
+# ---------- Server state & memory ----------
 def load_state():
     if not SERVER_STATE_FILE.exists():
         SERVER_STATE_FILE.write_text(json.dumps({"locked": False}, indent=2))
     try: return json.loads(SERVER_STATE_FILE.read_text())
     except Exception: return {"locked": False}
+def save_state(st): SERVER_STATE_FILE.write_text(json.dumps(st, indent=2))
 
-def save_state(st):
-    SERVER_STATE_FILE.write_text(json.dumps(st, indent=2))
-
-# ---------- Memory ----------
 DEFAULT_MEMORY = {"stable_facts": [], "summary": ""}
 if not MEM_FILE.exists():
     MEM_FILE.write_text(json.dumps(DEFAULT_MEMORY, ensure_ascii=False, indent=2), "utf-8")
-
-def load_json(path, default):
-    try: return json.loads(path.read_text("utf-8"))
-    except Exception: return default
-def save_json(path, obj): path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), "utf-8")
 def load_memory(): return load_json(MEM_FILE, DEFAULT_MEMORY)
 def save_memory(mem): save_json(MEM_FILE, mem)
 
@@ -196,7 +204,6 @@ PROVIDERS_DEFAULT = {
     "chutes": { "api_base": os.environ.get("CHUTES_API_BASE", "https://api.chutes.ai/v1"), "api_key": os.environ.get("CHUTES_API_KEY") }
 }
 EMBED_MODEL = os.environ.get("EMBED_MODEL","nomic-embed-text")
-PROVIDERS_FILE = DATA / "providers.json"
 
 def load_providers():
     if not PROVIDERS_FILE.exists():
@@ -239,7 +246,6 @@ def chat_stream_openai_like(provider_name, model, messages, extra=None):
     return requests.post(url, json=payload, headers=headers_for(provider_name, cfg), stream=True, timeout=None)
 
 # ---------- Conversations ----------
-CONV_DIR.mkdir(exist_ok=True)
 def conv_path(tid): return CONV_DIR / f"{tid}.json"
 def load_conv(tid): return load_json(conv_path(tid), {"messages": []})
 def save_conv(tid, data): save_json(conv_path(tid), data)
@@ -316,7 +322,7 @@ def keyword_score(q,t):
     ts = set(re.findall(r"[a-zA-Z']{3,}", t.lower()))
     return len(qs & ts) / (1 + len(qs))
 
-# ---------- Lore retrieval ----------
+# ---------- Lore & RAG ----------
 def load_lore(name):
     p = LORE_DIR / f"{name}.json"
     if not p.exists(): return None
@@ -348,70 +354,15 @@ def retrieve_lore(names, query_text, k=6):
     if not top: return None
     return "\n\n".join([f"[{nm}] {txt}" for _, txt, nm in top])
 
-# ---------- RAG storage & retrieval ----------
-def rag_db_path(profile_id, thread_id):
-    p = RAG_DIR / f"{profile_id}_{thread_id}.json"
-    if not p.exists():
-        save_json(p, {"docs": []})
-    return p
-
-def load_rag(profile_id, thread_id):
-    return load_json(rag_db_path(profile_id, thread_id), {"docs":[]})
-
-def save_rag(profile_id, thread_id, data):
-    save_json(rag_db_path(profile_id, thread_id), data)
-
-def extract_text_from_upload(storage):
-    name = storage.filename or f"file_{int(time.time())}"
-    raw = storage.read()
-    lower = name.lower()
-    try:
-        if lower.endswith((".txt", ".md", ".csv", ".json", ".log", ".html", ".css", ".js")):
-            return name, raw.decode("utf-8", errors="ignore")
-        if lower.endswith(".pdf") and HAS_PDF:
-            text = []
-            reader = PyPDF2.PdfReader(io.BytesIO(raw))
-            for pg in reader.pages:
-                try: text.append(pg.extract_text() or "")
-                except Exception: pass
-            return name, "\n\n".join(t for t in text if t)
-        return name, raw.decode("utf-8", errors="ignore")
-    except Exception:
-        return name, ""
-
-def retrieve_rag(profile_id, thread_id, query_text, k=8):
-    db = load_rag(profile_id, thread_id)
-    if not db.get("docs"): return None
-    prov = load_providers()
-    ollama_base = prov["ollama"]["api_base"]
-    results=[]
-    any_emb = any(any("emb" in c for c in d.get("chunks",[])) for d in db["docs"])
-    qv = None
-    if any_emb:
-        qvecs = embed_many(ollama_base, [query_text])
-        if qvecs: qv = qvecs[0]
-    for d in db["docs"]:
-        for c in d.get("chunks", []):
-            score = cosim(qv, c["emb"]) if (qv is not None and "emb" in c) else keyword_score(query_text, c["text"])
-            results.append((score, d["name"], c["text"]))
-    results.sort(key=lambda x:x[0], reverse=True)
-    top = results[:k]
-    if not top: return None
-    return "\n\n".join([f"[DOC:{nm}] {txt}" for _, nm, txt in top])
-
 # ---------- Static & Branding ----------
 @app.route("/")
 def index(): return send_from_directory("static","index.html")
-
 @app.route("/<path:path>")
 def static_files(path): return send_from_directory("static", path)
-
 @app.route("/branding/<path:filename>")
 def branding_files(filename): return send_from_directory(BRAND_DIR, filename)
-
 @app.route("/branding/themes/<slug>/<path:filename>")
 def branding_theme_files(slug, filename): return send_from_directory(theme_dir(slug), filename)
-
 @app.route("/api/branding", methods=["GET"])
 def api_branding_active(): return jsonify(get_active_theme())
 
@@ -420,7 +371,7 @@ def api_branding_active(): return jsonify(get_active_theme())
 @admin_required
 def admin_page(): return send_from_directory("static", "admin.html")
 
-# ---------- Public auth (USERNAME + PASSWORD) ----------
+# ---------- Auth ----------
 @app.route("/api/signup", methods=["POST"])
 def signup():
     if load_state().get("locked"): return ("Logins disabled by admin", 403)
@@ -521,112 +472,181 @@ def admin_lock():
 def admin_unlock():
     st = load_state(); st["locked"] = False; save_state(st); return jsonify({"ok": True,"locked": False})
 
-@app.route("/api/admin/branding_themes", methods=["GET"])
-@admin_required
-def admin_branding_themes():
-    st = load_branding_state()
-    out = [get_theme(slug) for slug in st["themes"].keys()]
-    return jsonify({"active_theme": st.get("active_theme"), "default_theme": st.get("default_theme"), "themes": out})
+# ---------- MOTD Config ----------
+DEFAULT_MOTD = {
+    "ascii": r"""
+   _           _        _        _           _ _       
+  | |         | |      | |      | |         | | |      
+  | |     __ _| | _____| |_ __ _| |__   __ _| | | ___  
+  | |    / _` | |/ / _ \ __/ _` | '_ \ / _` | | |/ _ \ 
+  | |___| (_| |   <  __/ || (_| | | | | (_| | | | (_) |
+  |______\__,_|_|\_\___|\__\__,_|_| |_|\__,_|_|_|\___/ 
+""".strip("\n"),
+    "list": [
+        "Welcome to your local AI terminal.",
+        "Tip: Drag & drop files into the chat for on-the-fly RAG.",
+        "Admin: /admin (host-only)."
+    ]
+}
+if not MOTD_FILE.exists():
+    save_json(MOTD_FILE, DEFAULT_MOTD)
 
-@app.route("/api/admin/branding_select", methods=["POST"])
+@app.route("/api/admin/motd", methods=["GET"])
 @admin_required
-def admin_branding_select():
+def admin_motd_get():
+    return jsonify(load_json(MOTD_FILE, DEFAULT_MOTD))
+
+@app.route("/api/admin/motd", methods=["POST"])
+@admin_required
+def admin_motd_set():
     js = request.get_json(force=True)
-    which = js.get("which"); slug = (js.get("slug") or "").strip().lower()
-    st = load_branding_state()
-    if slug not in st["themes"]: return jsonify({"error":"unknown theme"}), 404
-    if which == "active": st["active_theme"] = slug
-    elif which == "default": st["default_theme"] = slug
-    else: return jsonify({"error":"which must be 'active' or 'default'"}), 400
-    save_branding_state(st); return jsonify({"ok": True})
-
-@app.route("/api/admin/branding_theme", methods=["POST"])
-@admin_required
-def admin_branding_theme_upsert():
-    js = request.get_json(force=True)
-    slug = (js.get("slug") or "").strip().lower()
-    if not re.match(r"^[a-z0-9\-]{1,32}$", slug): return jsonify({"error":"slug invalid"}), 400
-    st = load_branding_state()
-    base = st["themes"].get(slug, {"slug": slug})
-    for k in ("app_name","radius","font_stack","colors"):
-        if k in js: base[k] = js[k]
-    st["themes"][slug] = base; save_branding_state(st); theme_dir(slug)
-    return jsonify({"ok": True, "theme": get_theme(slug)})
-
-@app.route("/api/admin/branding_theme_rename", methods=["POST"])
-@admin_required
-def admin_branding_theme_rename():
-    js = request.get_json(force=True)
-    old = (js.get("old_slug") or "").strip().lower()
-    new = (js.get("new_slug") or "").strip().lower()
-    if not re.match(r"^[a-z0-9\-]{1,32}$", new): return jsonify({"error":"new slug invalid"}), 400
-    st = load_branding_state()
-    if old not in st["themes"]: return jsonify({"error":"unknown theme"}), 404
-    if new in st["themes"]: return jsonify({"error":"target exists"}), 409
-    st["themes"][new] = st["themes"].pop(old); st["themes"][new]["slug"] = new
-    (THEMES_DIR/old).rename(THEMES_DIR/new)
-    if st["active_theme"] == old: st["active_theme"] = new
-    if st["default_theme"] == old: st["default_theme"] = new
-    save_branding_state(st)
-    return jsonify({"ok": True, "theme": get_theme(new)})
-
-@app.route("/api/admin/branding_theme", methods=["DELETE"])
-@admin_required
-def admin_branding_theme_delete():
-    slug = (request.args.get("slug") or "").strip().lower()
-    st = load_branding_state()
-    if slug not in st["themes"]: return jsonify({"error":"unknown theme"}), 404
-    if slug in ("default",) or slug in (st["active_theme"], st["default_theme"]):
-        return jsonify({"error":"cannot delete default/active theme"}), 400
-    st["themes"].pop(slug, None)
-    try:
-        d = THEMES_DIR/slug
-        for p in d.glob("*"):
-            try: p.unlink()
-            except: pass
-        d.rmdir()
-    except: pass
-    save_branding_state(st)
+    ascii_art = str(js.get("ascii") or DEFAULT_MOTD["ascii"])[:20000]
+    items = js.get("list") or []
+    if not isinstance(items, list): return jsonify({"error":"list must be array"}), 400
+    items = [str(x)[:200] for x in items][:20]
+    save_json(MOTD_FILE, {"ascii": ascii_art, "list": items})
     return jsonify({"ok": True})
 
-@app.route("/api/admin/branding_theme_duplicate", methods=["POST"])
-@admin_required
-def admin_branding_theme_duplicate():
-    js = request.get_json(force=True)
-    src = (js.get("src_slug") or "").strip().lower()
-    dst = (js.get("dst_slug") or "").strip().lower()
-    if not re.match(r"^[a-z0-9\-]{1,32}$", dst): return jsonify({"error":"dst slug invalid"}), 400
-    st = load_branding_state()
-    if src not in st["themes"]: return jsonify({"error":"unknown src"}), 404
-    if dst in st["themes"]: return jsonify({"error":"dst exists"}), 409
-    st["themes"][dst] = json.loads(json.dumps(st["themes"][src])); st["themes"][dst]["slug"] = dst
-    save_branding_state(st)
-    sdir, ddir = theme_dir(src), theme_dir(dst)
-    for name in ("logo.png","favicon.ico","custom.css"):
-        sp = sdir/name
-        if sp.exists(): (ddir/name).write_bytes(sp.read_bytes())
-    return jsonify({"ok": True, "theme": get_theme(dst)})
+def _fmt_bytes(n):
+    for unit in ['B','KB','MB','GB','TB','PB']:
+        if n < 1024.0: return f"{n:.1f}{unit}"
+        n /= 1024.0
+    return f"{n:.1f}PB"
 
-@app.route("/api/admin/branding_theme_assets", methods=["POST"])
-@admin_required
-def admin_branding_theme_assets():
-    slug = (request.args.get("slug") or "").strip().lower()
-    st = load_branding_state()
-    if slug not in st["themes"]: return jsonify({"error":"unknown theme"}), 404
-    td = theme_dir(slug); changed=[]
-    if "logo" in request.files:
-        f = request.files["logo"]
-        if f and f.filename.lower().endswith((".png",".webp",".jpg",".jpeg",".gif",".svg",".ico")):
-            (td/"logo.png").write_bytes(f.read()); changed.append("logo")
-    if "favicon" in request.files:
-        f = request.files["favicon"]
-        if f and f.filename.lower().endswith((".ico",".png")):
-            (td/"favicon.ico").write_bytes(f.read()); changed.append("favicon")
-    if "custom_css" in request.files:
-        f = request.files["custom_css"]
-        if f and f.filename.lower().endswith(".css"):
-            (td/"custom.css").write_bytes(f.read()); changed.append("custom_css")
-    return jsonify({"ok": True, "changed": changed})
+def _uptime_str():
+    if HAS_PSUTIL:
+        secs = int(time.time() - psutil.boot_time())
+    else:
+        secs = None
+        if os.name == "posix" and pathlib.Path("/proc/uptime").exists():
+            try: secs = int(float(pathlib.Path("/proc/uptime").read_text().split()[0]))
+            except Exception: pass
+        if secs is None:
+            started = int((DATA / ".server_started").read_text()) if (DATA/".server_started").exists() else int(time.time())
+            secs = int(time.time() - started)
+            (DATA/".server_started").write_text(str(started))
+    d, r = divmod(secs, 86400)
+    h, r = divmod(r, 3600)
+    m, s = divmod(r, 60)
+    out=[]
+    if d: out.append(f"{d}d")
+    if h: out.append(f"{h}h")
+    if m: out.append(f"{m}m")
+    out.append(f"{s}s")
+    return " ".join(out)
+
+def _suggest_aesthetic_from_model(start_text, lore_snips):
+    """Try to get tags like: neon|cyberpunk|parchment|noir|forest|terminal"""
+    cfg = load_providers(); cur = cfg.get("current","ollama")
+    try:
+        if cur == "ollama":
+            base = cfg["ollama"]["api_base"].rstrip("/")
+            prompt = (
+                "Given the following text and lore, output 1-3 short aesthetic tags (lowercase, hyphenated), comma-separated. "
+                "Examples: neon, cyberpunk, parchment, noir, mossy-ruin, terminal, retro-green.\n\n"
+                f"TEXT:\n{start_text}\n\nLORE:\n{lore_snips}\n\nTAGS: "
+            )
+            r = requests.post(f"{base}/api/generate",
+                              json={"model":"llama3.1:8b","prompt":prompt,"stream":False}, timeout=12)
+            r.raise_for_status()
+            raw = r.json().get("response","")
+            tags = [t.strip().lower() for t in raw.split(",") if 1<=len(t.strip())<=24][:3]
+            return tags or None
+        else:
+            # OpenRouter/Chutes minimal call
+            url = load_providers()[cur]["api_base"].rstrip("/") + "/chat/completions"
+            body = {"model":"gpt-3.5-turbo","messages":[
+                {"role":"system","content":"Output only comma-separated short aesthetic tags (lowercase)."},
+                {"role":"user","content": f"TEXT:\n{start_text}\n\nLORE:\n{lore_snips}\n\nTAGS:"}
+            ], "stream": False}
+            r = requests.post(url, json=body, headers=headers_for(cur, load_providers()), timeout=12)
+            r.raise_for_status()
+            txt = r.json()["choices"][0]["message"]["content"]
+            tags = [t.strip().lower() for t in txt.split(",") if 1<=len(t.strip())<=24][:3]
+            return tags or None
+    except Exception:
+        return None
+
+def _heuristic_aesthetic(start_text, lore_snips):
+    t = (start_text + " " + lore_snips).lower()
+    buckets = [
+        (["neon","cyber","night","neon-lit","matrix","neotokyo"], "neon"),
+        (["forest","grove","moss","druid","herb","sprout"], "mossy-ruin"),
+        (["ink","scroll","ancient","parchment","manuscript"], "parchment"),
+        (["noir","rain","cigarette","detective","alley"], "noir"),
+        (["terminal","retro","vt100","green"], "terminal"),
+        (["sand","dune","desert","spice"], "dunes"),
+    ]
+    hits = [tag for keys, tag in buckets if any(k in t for k in keys)]
+    return list(dict.fromkeys(hits))[:3] or ["terminal"]
+
+@app.route("/api/motd", methods=["GET"])
+def api_motd():
+    th = get_active_theme() or DEFAULT_THEME
+    app_name = th.get("app_name","Local Terminal Chat")
+
+    cfg = load_json(MOTD_FILE, DEFAULT_MOTD)
+    ascii_art = cfg.get("ascii") or DEFAULT_MOTD["ascii"]
+    items = list(cfg.get("list") or [])
+
+    # dynamic system items
+    host = socket.gethostname()
+    os_name = f"{platform.system()} {platform.release()}"
+    py = platform.python_version()
+    cpu = platform.processor() or platform.machine()
+    cols = shutil.get_terminal_size(fallback=(80, 24)).columns
+    uptime = _uptime_str()
+    if HAS_PSUTIL:
+        vm = psutil.virtual_memory()
+        items = items + [f"Memory: {_fmt_bytes(vm.used)} / {_fmt_bytes(vm.total)}", f"Uptime: {uptime}"]
+    else:
+        items = items + [f"Uptime: {uptime}"]
+
+    # aesthetic suggestion from first user message + lore snippets
+    # read last conv if any thread is provided
+    start_text = ""
+    lore_snips = ""
+    thread_id = request.args.get("thread_id")
+    profile_id = request.args.get("profile_id", type=int)
+    if thread_id and profile_id:
+        conv = load_conv(thread_id)
+        for m in conv.get("messages", []):
+            if m.get("role") == "user":
+                start_text = m.get("content","")[:1500]; break
+        # Aggregate quick lore
+        for f in LORE_DIR.glob("*.json"):
+            db = load_json(f, {})
+            for c in (db.get("chunks") or [])[:2]:
+                lore_snips += " " + c.get("text","")[:400]
+
+    tags = _suggest_aesthetic_from_model(start_text, lore_snips) or _heuristic_aesthetic(start_text, lore_snips)
+
+    # build combined left/right ascii + info like neofetch
+    left_lines = (ascii_art + f"\n{app_name}").splitlines()
+    right_lines = [
+        f"Host     : {host}",
+        f"OS       : {os_name}",
+        f"CPU      : {cpu}",
+        f"Python   : {py}",
+        f"Cols     : {cols}",
+        f"Style    : {', '.join(tags)}",
+    ] + [f"- {x}" for x in items[:8]]
+
+    width_left = max(len(s) for s in left_lines) if left_lines else 0
+    rows = max(len(left_lines), len(right_lines))
+    out=[]
+    for i in range(rows):
+        l = left_lines[i] if i < len(left_lines) else ""
+        r = right_lines[i] if i < len(right_lines) else ""
+        out.append(l.ljust(width_left+2) + r)
+
+    return jsonify({
+        "ascii": "\n".join(out),
+        "app_name": app_name,
+        "theme": th.get("slug","default"),
+        "color": th.get("colors",{}).get("accent","#62ff80"),
+        "tags": tags
+    })
 
 # ---------- Profiles & threads ----------
 @app.route("/api/me", methods=["GET"])
@@ -686,7 +706,67 @@ def new_thread():
     save_conv(tid, {"messages": []})
     return jsonify({"thread_id": tid, "title": title})
 
-# ---------- Telemetry (clients heartbeat) ----------
+# ---------- RPG STATUS (per profile_id + thread_id) ----------
+def rpg_path(profile_id, thread_id):
+    p = RPG_DIR / f"{profile_id}_{thread_id}.json"
+    if not p.exists():
+        # initialize a blank sheet
+        blank = {
+            "updated_at": int(time.time()),
+            "health": [],  # wounds: {id, part, kind, severity(0-100), bleeding(0-3), pain(0-3)}
+            "bowels": 20,  # 0-100
+            "bladder": 20, # 0-100
+            "hunger": 20,  # 0-100 (0 full, 100 starving)
+            "thirst": 20,  # 0-100
+            "calories": 2000,
+            "hydration_ml": 2000,
+            "inventory": [] # {id, name, qty, weight}
+        }
+        save_json(p, blank)
+    return p
+
+def load_rpg(profile_id, thread_id): return load_json(rpg_path(profile_id, thread_id), {})
+def save_rpg(profile_id, thread_id, obj): save_json(rpg_path(profile_id, thread_id), obj)
+
+@app.route("/api/rpg/status", methods=["GET"])
+@login_required
+def rpg_get():
+    profile_id = int(request.args.get("profile_id"))
+    thread_id = request.args.get("thread_id")
+    sheet = load_rpg(profile_id, thread_id)
+    return jsonify(sheet)
+
+@app.route("/api/rpg/status", methods=["POST"])
+@login_required
+def rpg_set():
+    profile_id = int(request.args.get("profile_id"))
+    thread_id = request.args.get("thread_id")
+    patch = request.get_json(force=True)
+    sheet = load_rpg(profile_id, thread_id)
+
+    # allow replacing sections or full fields
+    for k in ("health","bowels","bladder","hunger","thirst","calories","hydration_ml","inventory"):
+        if k in patch: sheet[k] = patch[k]
+    sheet["updated_at"] = int(time.time())
+    save_rpg(profile_id, thread_id, sheet)
+    return jsonify({"ok": True})
+
+def _auto_tick_rpg(profile_id, thread_id, sheet, minutes=5):
+    """very simple metabolism tick per turn"""
+    # baseline increases
+    sheet["hunger"] = min(100, sheet.get("hunger",20) + 2)
+    sheet["thirst"] = min(100, sheet.get("thirst",20) + 3)
+    sheet["bowels"] = min(100, sheet.get("bowels",20) + 1)
+    sheet["bladder"] = min(100, sheet.get("bladder",20) + 2)
+    # bleeding escalates thirst and hunger slightly
+    bleeding = sum(w.get("bleeding",0) for w in sheet.get("health",[]))
+    if bleeding:
+        sheet["thirst"] = min(100, sheet["thirst"] + bleeding)
+        sheet["hunger"] = min(100, sheet["hunger"] + max(0, bleeding-1))
+    sheet["updated_at"] = int(time.time())
+    save_rpg(profile_id, thread_id, sheet)
+
+# ---------- Telemetry ----------
 def _guess_os(ua: str) -> str:
     u = (ua or "").lower()
     if "windows" in u: return "Windows"
@@ -727,26 +807,6 @@ def telemetry_heartbeat():
     con.commit(); con.close()
     return jsonify({"ok": True, "client_id": client_id})
 
-@app.route("/api/admin/clients", methods=["GET"])
-@admin_required
-def admin_list_clients():
-    now = int(time.time())
-    con = db(); cur = con.cursor()
-    cur.execute("""SELECT c.id, c.user_id, u.username, c.app_kind, c.os, c.device, c.ip,
-                          c.first_seen, c.last_seen, c.user_agent
-                   FROM clients c JOIN users u ON u.id=c.user_id
-                   ORDER BY c.last_seen DESC LIMIT 500""")
-    rows = [dict(r) for r in cur.fetchall()]
-    con.close()
-    out = []
-    for r in rows:
-        uptime = max(0, r["last_seen"] - r["first_seen"])
-        online = (now - r["last_seen"]) <= 45
-        r["uptime_sec"] = uptime
-        r["online"] = online
-        out.append(r)
-    return jsonify({"clients": out, "now": now})
-
 # ---------- Chat ----------
 def call_local_summarize(text, chat_model="llama3.1:8b"):
     base = load_providers()["ollama"]["api_base"]
@@ -782,19 +842,22 @@ def chat():
     user_msgs = payload.get("messages", [])
     options = payload.get("options")
 
+    # Guard: thread belongs to current user
     con = db(); cur = con.cursor()
-    cur.execute("""SELECT t.id FROM threads t 
+    cur.execute("""SELECT t.id, p.kind FROM threads t 
                    JOIN profiles p ON p.id=t.profile_id 
                    WHERE t.id=? AND p.user_id=? AND p.id=?""",
                 (thread_id, current_user_id(), profile_id))
-    ok = cur.fetchone(); con.close()
-    if not ok: return ("Forbidden", 403)
+    row = cur.fetchone(); con.close()
+    if not row: return ("Forbidden", 403)
+    profile_kind = row["kind"]
 
+    # Save incoming
     conv = load_conv(thread_id)
     conv["messages"].extend(user_msgs)
     recent_msgs = conv["messages"][-18:]
 
-    # Parse action JSON
+    # Parse structured actions
     try:
         last = user_msgs[-1]["content"]
         if last.lstrip().startswith("{"):
@@ -805,16 +868,23 @@ def chat():
         pass
 
     user_turn_text = recent_msgs[-1]["content"] if recent_msgs else ""
-    rag_ctx = retrieve_rag(profile_id, thread_id, user_turn_text, k=8)
-    lore_ctx = retrieve_lore(lore_names, user_turn_text, k=6)
+    rag_ctx = retrieve_lore(lore_names, user_turn_text, k=6)  # lore first
+    docs_ctx = None
+    # You can also add RAG-by-thread if you kept it earlier:
+    if (RAG_DIR / f"{profile_id}_{thread_id}.json").exists():
+        docs_ctx = load_json(RAG_DIR / f"{profile_id}_{thread_id}.json", {}).get("docs")
+    rag_concat = None
+    if docs_ctx:
+        # quick keyword RAG
+        rag_concat = "[DOCS ATTACHED]\n" + "\n\n".join(f"[{d.get('name')}]" for d in docs_ctx[:6])
 
     base_messages = inject_memory(recent_msgs)
+    if rag_concat:
+        base_messages = [{"role":"system", "content": rag_concat}] + base_messages
     if rag_ctx:
-        base_messages = [{"role":"system", "content":"Attached Documents (high priority factual context):\n"+rag_ctx}] + base_messages
-    if lore_ctx:
-        base_messages = [{"role":"system", "content":"Lore Context (authoritative canon; prefer over guesses):\n"+lore_ctx}] + base_messages
+        base_messages = [{"role":"system", "content":"Lore Context (authoritative canon; prefer over guesses):\n"+rag_ctx}] + base_messages
 
-    # Upstream stream
+    # Upstream
     try:
         if provider=="ollama":
             upstream = chat_stream_ollama(model, base_messages); mode="ollama"
@@ -854,7 +924,12 @@ def chat():
         conv["messages"].append({"role":"assistant","content": full})
         save_conv(thread_id, conv)
 
-        # update memory
+        # simple per-turn RPG tick
+        if profile_kind == "rpg":
+            sheet = load_rpg(profile_id, thread_id)
+            _auto_tick_rpg(profile_id, thread_id, sheet)
+
+        # update cross-chat memory
         try:
             transcript = "\n".join(m["role"] + ": " + m["content"] for m in conv["messages"][-40:])
             mem = load_memory()
