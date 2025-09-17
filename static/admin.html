@@ -1,190 +1,340 @@
-<section>
-  <h2 style="font-size:16px;color:#84d490">Themes</h2>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Admin :: Local Terminal Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- VT323 for terminal vibes -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="admin">
 
-  <div class="row" style="gap:12px; align-items:center">
-    <label>Current active:
-      <select id="themeActive"></select>
-    </label>
-    <button id="btnSetActive" class="primary">Set Active</button>
+  <header class="topbar panel">
+    <div class="brand">
+      <span>ADMIN :: LOCAL TERMINAL CHAT</span>
+    </div>
+    <div class="grow"></div>
+    <a class="buttonlike" href="/" target="_blank">Open App</a>
+  </header>
 
-    <label style="margin-left:16px">Default:
-      <select id="themeDefault"></select>
-    </label>
-    <button id="btnSetDefault">Set Default</button>
-  </div>
+  <main style="padding:8px; display:flex; flex-direction:column; gap:14px;">
 
-  <div class="row" style="gap:12px; align-items:center; margin-top:8px">
-    <label>New theme slug <input id="themeNewSlug" size="16" placeholder="e.g. neon-green"></label>
-    <button id="btnCreateTheme">Create Empty</button>
-    <label>Duplicate from <select id="themeDupSrc"></select> → as <input id="themeDupDst" size="16"></label>
-    <button id="btnDuplicate">Duplicate</button>
-  </div>
+    <!-- Themes manager -->
+    <section class="panel" style="padding:10px 12px">
+      <h2 style="font-size:16px;color:#84d490">Themes</h2>
 
-  <div class="row" style="gap:12px; align-items:center; margin-top:8px">
-    <label>Rename <select id="themeRenameOld"></select> → <input id="themeRenameNew" size="16"></label>
-    <button id="btnRename">Rename</button>
-    <label style="margin-left:16px">Delete <select id="themeDelete"></select></label>
-    <button id="btnDelete" class="danger">Delete</button>
-  </div>
+      <div class="row" style="gap:12px; align-items:center">
+        <label>Current active:
+          <select id="themeActive"></select>
+        </label>
+        <button id="btnSetActive" class="primary">Set Active</button>
 
-  <div class="row" style="gap:12px; align-items:center; margin-top:8px">
-    <label>Assets for <select id="themeAssetSlug"></select></label>
-    <label>Logo <input id="themeLogo" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,.svg,.ico"></label>
-    <label>Favicon <input id="themeFav" type="file" accept=".ico,.png"></label>
-    <label>Custom CSS <input id="themeCss" type="file" accept=".css"></label>
-    <button id="btnUploadAssets">Upload</button>
-  </div>
+        <label style="margin-left:16px">Default:
+          <select id="themeDefault"></select>
+        </label>
+        <button id="btnSetDefault">Set Default</button>
+      </div>
 
-  <small>Note: you edit colors/name/radius/font in the <strong>Branding</strong> section below — it saves to the currently selected theme in the dropdown just above that section.</small>
+      <div class="row" style="gap:12px; align-items:center; margin-top:8px">
+        <label>New theme slug <input id="themeNewSlug" size="16" placeholder="e.g. neon-green"></label>
+        <button id="btnCreateTheme">Create Empty</button>
+        <label>Duplicate from <select id="themeDupSrc"></select> → as <input id="themeDupDst" size="16"></label>
+        <button id="btnDuplicate">Duplicate</button>
+      </div>
 
-  <div id="themesMsg" style="margin-top:6px"></div>
-</section>
+      <div class="row" style="gap:12px; align-items:center; margin-top:8px">
+        <label>Rename <select id="themeRenameOld"></select> → <input id="themeRenameNew" size="16"></label>
+        <button id="btnRename">Rename</button>
+        <label style="margin-left:16px">Delete <select id="themeDelete"></select></label>
+        <button id="btnDelete" class="danger">Delete</button>
+      </div>
 
-<script>
-const T = {
-  selActive: document.getElementById('themeActive'),
-  selDefault: document.getElementById('themeDefault'),
-  newSlug: document.getElementById('themeNewSlug'),
-  btnCreate: document.getElementById('btnCreateTheme'),
-  dupSrc: document.getElementById('themeDupSrc'),
-  dupDst: document.getElementById('themeDupDst'),
-  btnDup: document.getElementById('btnDuplicate'),
-  renOld: document.getElementById('themeRenameOld'),
-  renNew: document.getElementById('themeRenameNew'),
-  btnRen: document.getElementById('btnRename'),
-  delSel: document.getElementById('themeDelete'),
-  btnDel: document.getElementById('btnDelete'),
-  assetSlug: document.getElementById('themeAssetSlug'),
-  logo: document.getElementById('themeLogo'),
-  fav: document.getElementById('themeFav'),
-  css: document.getElementById('themeCss'),
-  btnUpload: document.getElementById('btnUploadAssets'),
-  btnSetActive: document.getElementById('btnSetActive'),
-  btnSetDefault: document.getElementById('btnSetDefault'),
-  msg: document.getElementById('themesMsg'),
-  // branding editor fields from your earlier Branding section:
-  bName: document.getElementById('brandName'),
-  bRadius: document.getElementById('brandRadius'),
-  bFont: document.getElementById('brandFont'),
-  c_bg: document.getElementById('c_bg'), c_fg: document.getElementById('c_fg'), c_muted: document.getElementById('c_muted'),
-  c_panel: document.getElementById('c_panel'), c_border: document.getElementById('c_border'), c_accent: document.getElementById('c_accent'),
-  c_danger: document.getElementById('c_danger'), c_link: document.getElementById('c_link'),
-  bSave: document.getElementById('saveBrand'),
-  bMsg: document.getElementById('brandMsg')
-};
+      <div class="row" style="gap:12px; align-items:center; margin-top:8px">
+        <label>Assets for <select id="themeAssetSlug"></select></label>
+        <label>Logo <input id="themeLogo" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,.svg,.ico"></label>
+        <label>Favicon <input id="themeFav" type="file" accept=".ico,.png"></label>
+        <label>Custom CSS <input id="themeCss" type="file" accept=".css"></label>
+        <button id="btnUploadAssets">Upload</button>
+      </div>
 
-let THEME_STATE = null;    // { active_theme, default_theme, themes:[...] }
-let CURRENT_EDIT_SLUG = null;
+      <small>Edit name/colors/radius/font in the <strong>Branding</strong> section below — saves to the selected active theme.</small>
+      <div id="themesMsg" style="margin-top:6px"></div>
+    </section>
 
-async function loadThemes(){
-  const r = await fetch('/api/admin/branding_themes');
-  THEME_STATE = await r.json();
-  const themes = THEME_STATE.themes || [];
-  const slugs = themes.map(t=>t.slug);
+    <!-- Branding editor -->
+    <section class="panel" style="padding:10px 12px">
+      <h2 style="font-size:16px;color:#84d490">Branding</h2>
+      <div class="row">
+        <label>App name <input id="brandName" size="28" placeholder="Local Terminal Chat"></label>
+        <label>Radius <input id="brandRadius" type="number" value="8" style="width:80px"></label>
+      </div>
+      <div class="row">
+        <label>Font stack <input id="brandFont" size="54" placeholder="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"></label>
+      </div>
+      <div class="row" style="gap:16px">
+        <label>bg <input id="c_bg" type="color" value="#0a0c0a"></label>
+        <label>fg <input id="c_fg" type="color" value="#c8facc"></label>
+        <label>muted <input id="c_muted" type="color" value="#8fb99b"></label>
+        <label>panel <input id="c_panel" type="color" value="#0f110f"></label>
+        <label>border <input id="c_border" type="color" value="#1a1f1a"></label>
+        <label>accent <input id="c_accent" type="color" value="#62ff80"></label>
+        <label>danger <input id="c_danger" type="color" value="#ff6b6b"></label>
+        <label>link <input id="c_link" type="color" value="#7fe0ff"></label>
+      </div>
+      <div class="row">
+        <button id="saveBrand">Save Theme</button>
+        <span id="brandMsg"></span>
+      </div>
+      <hr>
+      <h3 style="font-size:15px;color:#84d490;margin-top:4px">Assets</h3>
+      <div class="row">
+        <label>Logo <input id="logoFile" type="file" accept=".png,.webp,.jpg,.jpeg,.gif,.svg,.ico"></label>
+        <label>Favicon <input id="favFile" type="file" accept=".ico,.png"></label>
+        <label>Custom CSS <input id="cssFile" type="file" accept=".css"></label>
+      </div>
+      <div class="row">
+        <button id="uploadBrand">Upload</button>
+        <span id="brandUploadMsg"></span>
+      </div>
+    </section>
 
-  function fill(sel, opts){
-    sel.innerHTML = '';
-    for (const s of opts){
-      const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o);
-    }
-  }
-  fill(T.selActive, slugs); T.selActive.value = THEME_STATE.active_theme;
-  fill(T.selDefault, slugs); T.selDefault.value = THEME_STATE.default_theme;
-  fill(T.dupSrc, slugs);
-  fill(T.renOld, slugs);
-  fill(T.delSel, slugs.filter(s => !['default', THEME_STATE.active_theme, THEME_STATE.default_theme].includes(s)));
-  fill(T.assetSlug, slugs);
+    <!-- Devices Dashboard -->
+    <section class="panel" style="padding:10px 12px">
+      <h2 style="font-size:16px;color:#84d490">Devices Dashboard</h2>
+      <p>Recent clients with heartbeat. “Online” = seen within the last 45 seconds.</p>
+      <div class="row">
+        <button id="reloadClients" class="sm">Refresh</button>
+        <label>Auto-refresh <input type="checkbox" id="autoClients" checked></label>
+      </div>
+      <div class="panel" style="overflow:auto; margin-top:8px">
+        <table id="clientsTable" style="width:100%; border-collapse:collapse">
+          <thead>
+            <tr style="text-align:left">
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">Online</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">Username</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">App</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">OS</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">Device</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">IP</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">Uptime</th>
+              <th style="padding:6px 8px;border-bottom:1px solid var(--border)">Last Seen</th>
+            </tr>
+          </thead>
+          <tbody id="clientsBody"></tbody>
+        </table>
+      </div>
+    </section>
 
-  // load current active theme values into Branding editor
-  CURRENT_EDIT_SLUG = T.selActive.value;
-  const active = themes.find(t=>t.slug===CURRENT_EDIT_SLUG) || themes[0];
-  if (active){
-    T.bName.value = active.app_name || '';
-    T.bRadius.value = active.radius ?? 8;
-    T.bFont.value = active.font_stack || '';
-    const c = active.colors || {};
-    T.c_bg.value = c.bg || '#0a0c0a';
-    T.c_fg.value = c.fg || '#c8facc';
-    T.c_muted.value = c.muted || '#8fb99b';
-    T.c_panel.value = c.panel || '#0f110f';
-    T.c_border.value = c.border || '#1a1f1a';
-    T.c_accent.value = c.accent || '#62ff80';
-    T.c_danger.value = c.danger || '#ff6b6b';
-    T.c_link.value = c.link || '#7fe0ff';
-  }
-}
+  </main>
 
-T.btnSetActive.addEventListener('click', async ()=>{
-  const slug = T.selActive.value;
-  const r = await fetch('/api/admin/branding_select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({which:'active', slug})});
-  T.msg.textContent = r.ok ? `Active theme set to ${slug}.` : 'Failed.'; 
-  if (r.ok) await loadThemes();
-});
-T.btnSetDefault.addEventListener('click', async ()=>{
-  const slug = T.selDefault.value;
-  const r = await fetch('/api/admin/branding_select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({which:'default', slug})});
-  T.msg.textContent = r.ok ? `Default theme set to ${slug}.` : 'Failed.'; 
-  if (r.ok) await loadThemes();
-});
-T.btnCreate.addEventListener('click', async ()=>{
-  const slug = T.themeNewSlug.value.trim().toLowerCase();
-  if (!slug) return;
-  const body = { slug, app_name: 'New Theme', colors: {}, radius: 8, font_stack: '' };
-  const r = await fetch('/api/admin/branding_theme', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  T.msg.textContent = r.ok ? `Created ${slug}.` : 'Failed.'; 
-  if (r.ok) await loadThemes();
-});
-T.btnDup.addEventListener('click', async ()=>{
-  const src = T.dupSrc.value, dst = T.dupDst.value.trim().toLowerCase();
-  if (!dst) return;
-  const r = await fetch('/api/admin/branding_theme_duplicate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({src_slug: src, dst_slug: dst})});
-  T.msg.textContent = r.ok ? `Duplicated to ${dst}.` : 'Failed.'; 
-  if (r.ok) await loadThemes();
-});
-T.btnRen.addEventListener('click', async ()=>{
-  const old_slug = T.renOld.value, new_slug = T.renNew.value.trim().toLowerCase();
-  if (!new_slug) return;
-  const r = await fetch('/api/admin/branding_theme_rename', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({old_slug, new_slug})});
-  T.msg.textContent = r.ok ? `Renamed to ${new_slug}.` : 'Failed.'; 
-  if (r.ok) await loadThemes();
-});
-T.btnDel.addEventListener('click', async ()=>{
-  const slug = T.delSel.value;
-  if (!slug) return;
-  if (!confirm(`Delete theme '${slug}'? This cannot be undone.`)) return;
-  const r = await fetch('/api/admin/branding_theme?slug='+encodeURIComponent(slug), {method:'DELETE'});
-  T.msg.textContent = r.ok ? `Deleted ${slug}.` : 'Failed.'; 
-  if (r.ok) await loadThemes();
-});
-T.btnUpload.addEventListener('click', async ()=>{
-  const slug = T.assetSlug.value;
-  const fd = new FormData();
-  if (T.logo.files[0]) fd.append('logo', T.logo.files[0]);
-  if (T.fav.files[0]) fd.append('favicon', T.fav.files[0]);
-  if (T.css.files[0]) fd.append('custom_css', T.css.files[0]);
-  const r = await fetch('/api/admin/branding_theme_assets?slug='+encodeURIComponent(slug), {method:'POST', body: fd});
-  T.msg.textContent = r.ok ? `Assets updated for ${slug}.` : 'Failed.'; 
-  if (r.ok) { T.logo.value=''; T.fav.value=''; T.css.value=''; }
-});
-
-// Saving the Branding form writes into the CURRENT_EDIT_SLUG
-T.bSave?.addEventListener('click', async (e)=>{
-  e.preventDefault();
-  const slug = T.selActive.value; // edit the active one (feel free to add a separate "edit slug" dropdown if you prefer)
-  const body = {
-    slug,
-    app_name: T.bName.value.trim(),
-    radius: parseInt(T.bRadius.value||'8',10),
-    font_stack: T.bFont.value.trim(),
-    colors: {
-      bg: T.c_bg.value, fg: T.c_fg.value, muted: T.c_muted.value,
-      panel: T.c_panel.value, border: T.c_border.value,
-      accent: T.c_accent.value, danger: T.c_danger.value, link: T.c_link.value
-    }
+  <script>
+  /* ---- Themes manager wiring ---- */
+  const T = {
+    selActive: document.getElementById('themeActive'),
+    selDefault: document.getElementById('themeDefault'),
+    newSlug: document.getElementById('themeNewSlug'),
+    btnCreate: document.getElementById('btnCreateTheme'),
+    dupSrc: document.getElementById('themeDupSrc'),
+    dupDst: document.getElementById('themeDupDst'),
+    btnDup: document.getElementById('btnDuplicate'),
+    renOld: document.getElementById('themeRenameOld'),
+    renNew: document.getElementById('themeRenameNew'),
+    btnRen: document.getElementById('btnRename'),
+    delSel: document.getElementById('themeDelete'),
+    btnDel: document.getElementById('btnDelete'),
+    assetSlug: document.getElementById('themeAssetSlug'),
+    logo: document.getElementById('themeLogo'),
+    fav: document.getElementById('themeFav'),
+    css: document.getElementById('themeCss'),
+    btnUpload: document.getElementById('btnUploadAssets'),
+    btnSetActive: document.getElementById('btnSetActive'),
+    btnSetDefault: document.getElementById('btnSetDefault'),
+    msg: document.getElementById('themesMsg'),
+    bName: document.getElementById('brandName'),
+    bRadius: document.getElementById('brandRadius'),
+    bFont: document.getElementById('brandFont'),
+    c_bg: document.getElementById('c_bg'), c_fg: document.getElementById('c_fg'), c_muted: document.getElementById('c_muted'),
+    c_panel: document.getElementById('c_panel'), c_border: document.getElementById('c_border'), c_accent: document.getElementById('c_accent'),
+    c_danger: document.getElementById('c_danger'), c_link: document.getElementById('c_link'),
+    bSave: document.getElementById('saveBrand'),
+    bMsg: document.getElementById('brandMsg')
   };
-  const r = await fetch('/api/admin/branding_theme', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  T.bMsg.textContent = r.ok ? 'Saved.' : 'Failed.'; T.bMsg.className = r.ok ? 'ok':'bad';
-});
+  let THEME_STATE = null;
 
-loadThemes().catch(()=>{});
-</script>
+  async function loadThemes(){
+    const r = await fetch('/api/admin/branding_themes');
+    THEME_STATE = await r.json();
+    const themes = THEME_STATE.themes || [];
+    const slugs = themes.map(t=>t.slug);
+
+    function fill(sel, opts){
+      sel.innerHTML = '';
+      for (const s of opts){
+        const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o);
+      }
+    }
+    fill(T.selActive, slugs); T.selActive.value = THEME_STATE.active_theme;
+    fill(T.selDefault, slugs); T.selDefault.value = THEME_STATE.default_theme;
+    fill(T.dupSrc, slugs);
+    fill(T.renOld, slugs);
+    fill(T.delSel, slugs.filter(s => !['default', THEME_STATE.active_theme, THEME_STATE.default_theme].includes(s)));
+    fill(T.assetSlug, slugs);
+
+    const active = themes.find(t=>t.slug===T.selActive.value) || themes[0];
+    if (active){
+      T.bName.value = active.app_name || '';
+      T.bRadius.value = active.radius ?? 8;
+      T.bFont.value = active.font_stack || '';
+      const c = active.colors || {};
+      T.c_bg.value = c.bg || '#0a0c0a';
+      T.c_fg.value = c.fg || '#c8facc';
+      T.c_muted.value = c.muted || '#8fb99b';
+      T.c_panel.value = c.panel || '#0f110f';
+      T.c_border.value = c.border || '#1a1f1a';
+      T.c_accent.value = c.accent || '#62ff80';
+      T.c_danger.value = c.danger || '#ff6b6b';
+      T.c_link.value = c.link || '#7fe0ff';
+    }
+  }
+
+  T.btnSetActive.addEventListener('click', async ()=>{
+    const slug = T.selActive.value;
+    const r = await fetch('/api/admin/branding_select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({which:'active', slug})});
+    T.msg.textContent = r.ok ? `Active theme set to ${slug}.` : 'Failed.'; 
+    if (r.ok) await loadThemes();
+  });
+
+  T.btnSetDefault.addEventListener('click', async ()=>{
+    const slug = T.selDefault.value;
+    const r = await fetch('/api/admin/branding_select', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({which:'default', slug})});
+    T.msg.textContent = r.ok ? `Default theme set to ${slug}.` : 'Failed.'; 
+    if (r.ok) await loadThemes();
+  });
+
+  T.btnCreate.addEventListener('click', async ()=>{
+    const slug = T.newSlug.value.trim().toLowerCase();
+    if (!slug) return;
+    const body = { slug, app_name: 'New Theme', colors: {}, radius: 8, font_stack: '' };
+    const r = await fetch('/api/admin/branding_theme', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    T.msg.textContent = r.ok ? `Created ${slug}.` : 'Failed.'; 
+    if (r.ok) await loadThemes();
+  });
+
+  T.btnDup.addEventListener('click', async ()=>{
+    const src = T.dupSrc.value, dst = T.dupDst.value.trim().toLowerCase();
+    if (!dst) return;
+    const r = await fetch('/api/admin/branding_theme_duplicate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({src_slug: src, dst_slug: dst})});
+    T.msg.textContent = r.ok ? `Duplicated to ${dst}.` : 'Failed.'; 
+    if (r.ok) await loadThemes();
+  });
+
+  T.btnRen.addEventListener('click', async ()=>{
+    const old_slug = T.renOld.value, new_slug = T.renNew.value.trim().toLowerCase();
+    if (!new_slug) return;
+    const r = await fetch('/api/admin/branding_theme_rename', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({old_slug, new_slug})});
+    T.msg.textContent = r.ok ? `Renamed to ${new_slug}.` : 'Failed.'; 
+    if (r.ok) await loadThemes();
+  });
+
+  T.btnDel.addEventListener('click', async ()=>{
+    const slug = T.delSel.value;
+    if (!slug) return;
+    if (!confirm(`Delete theme '${slug}'?`)) return;
+    const r = await fetch('/api/admin/branding_theme?slug='+encodeURIComponent(slug), {method:'DELETE'});
+    T.msg.textContent = r.ok ? `Deleted ${slug}.` : 'Failed.'; 
+    if (r.ok) await loadThemes();
+  });
+
+  T.btnUpload.addEventListener('click', async ()=>{
+    const slug = T.assetSlug.value;
+    const fd = new FormData();
+    const L = document.getElementById('themeLogo').files[0];
+    const F = document.getElementById('themeFav').files[0];
+    const C = document.getElementById('themeCss').files[0];
+    if (L) fd.append('logo', L);
+    if (F) fd.append('favicon', F);
+    if (C) fd.append('custom_css', C);
+    const r = await fetch('/api/admin/branding_theme_assets?slug='+encodeURIComponent(slug), {method:'POST', body: fd});
+    T.msg.textContent = r.ok ? `Assets updated for ${slug}.` : 'Failed.'; 
+    if (r.ok) { document.getElementById('themeLogo').value=''; document.getElementById('themeFav').value=''; document.getElementById('themeCss').value=''; }
+  });
+
+  T.bSave?.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    const slug = T.selActive.value;
+    const body = {
+      slug,
+      app_name: T.bName.value.trim(),
+      radius: parseInt(T.bRadius.value||'8',10),
+      font_stack: T.bFont.value.trim(),
+      colors: {
+        bg: document.getElementById('c_bg').value,
+        fg: document.getElementById('c_fg').value,
+        muted: document.getElementById('c_muted').value,
+        panel: document.getElementById('c_panel').value,
+        border: document.getElementById('c_border').value,
+        accent: document.getElementById('c_accent').value,
+        danger: document.getElementById('c_danger').value,
+        link: document.getElementById('c_link').value
+      }
+    };
+    const r = await fetch('/api/admin/branding_theme', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    document.getElementById('brandMsg').textContent = r.ok ? 'Saved.' : 'Failed.';
+  });
+
+  loadThemes().catch(()=>{});
+
+  /* ---- Devices dashboard ---- */
+  (function(){
+    const $ = id => document.getElementById(id);
+    const tbody = $('clientsBody');
+    const btn = $('reloadClients');
+    const auto = $('autoClients');
+
+    function fmtDuration(sec){
+      const s = Math.max(0, Math.floor(sec||0));
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+      const parts = [];
+      if (h) parts.push(h+'h');
+      if (m || h) parts.push(m+'m');
+      parts.push(ss+'s');
+      return parts.join(' ');
+    }
+    function fmtTime(ts){
+      try{ return new Date(ts*1000).toLocaleString(); }catch{ return ts }
+    }
+
+    async function loadClients(){
+      try{
+        const r = await fetch('/api/admin/clients');
+        if (!r.ok) return;
+        const j = await r.json();
+        const rows = j.clients || [];
+        tbody.innerHTML = '';
+        for (const c of rows){
+          const tr = document.createElement('tr');
+          const dot = c.online ? '🟢' : '⚪';
+          tr.innerHTML = `
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${dot}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c.username || ('user#'+c.user_id)}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c.app_kind}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c.os}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c.device}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c.ip || ''}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${fmtDuration(c.uptime_sec)}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid var(--border)">${fmtTime(c.last_seen)}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      }catch{}
+    }
+
+    btn?.addEventListener('click', loadClients);
+    setInterval(()=>{ if (auto?.checked) loadClients(); }, 5000);
+    loadClients();
+  })();
+  </script>
+</body>
+</html>
