@@ -1,9 +1,8 @@
-# server.py — username+password auth; providers (ollama/openrouter/chutes); branding/themes; RAG;
-# host-only admin; telemetry dashboard; customizable MOTD; RPG status tracker (RimWorld-ish).
+# server.py — auth; providers (ollama/openrouter/chutes); branding/themes; RAG; host-only admin;
+# telemetry; customizable MOTD; RPG status + metabolism (nutrients + debuffs + character creator).
 
 from flask import Flask, request, Response, send_from_directory, jsonify, stream_with_context, session
 import os, io, json, time, uuid, pathlib, requests, re, math, sqlite3, platform, shutil, socket, random
-
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 
@@ -34,11 +33,11 @@ PROVIDERS_FILE = DATA / "providers.json"
 SERVER_STATE_FILE = DATA / "server_state.json"
 DB_PATH = DATA / "app.db"
 
-# New config files
-MOTD_FILE = DATA / "motd.json"  # ascii + list items
+# New config & RPG data
+MOTD_FILE = DATA / "motd.json"
 RPG_DIR = DATA / "rpg"; RPG_DIR.mkdir(exist_ok=True)
 
-# ---------- Branding (Themes) ----------
+# ---------- Branding ----------
 DEFAULT_THEME = {
     "slug": "default",
     "app_name": "Local Terminal Chat",
@@ -322,7 +321,7 @@ def keyword_score(q,t):
     ts = set(re.findall(r"[a-zA-Z']{3,}", t.lower()))
     return len(qs & ts) / (1 + len(qs))
 
-# ---------- Lore & RAG ----------
+# ---------- Lore ----------
 def load_lore(name):
     p = LORE_DIR / f"{name}.json"
     if not p.exists(): return None
@@ -366,10 +365,15 @@ def branding_theme_files(slug, filename): return send_from_directory(theme_dir(s
 @app.route("/api/branding", methods=["GET"])
 def api_branding_active(): return jsonify(get_active_theme())
 
-# ---------- Admin page ----------
+# Admin UI
 @app.route("/admin")
 @admin_required
 def admin_page(): return send_from_directory("static", "admin.html")
+
+# Character creator page
+@app.route("/character")
+@login_required
+def character_page(): return send_from_directory("static","character.html")
 
 # ---------- Auth ----------
 @app.route("/api/signup", methods=["POST"])
@@ -456,23 +460,7 @@ def list_models():
     except Exception:
         return jsonify({"models": []})
 
-# ---------- Admin: lock/unlock & themes ----------
-@app.route("/api/admin/status", methods=["GET"])
-@admin_required
-def admin_status():
-    return jsonify({"locked": bool(load_state().get("locked"))})
-
-@app.route("/api/admin/lock", methods=["POST"])
-@admin_required
-def admin_lock():
-    st = load_state(); st["locked"] = True; save_state(st); return jsonify({"ok": True,"locked": True})
-
-@app.route("/api/admin/unlock", methods=["POST"])
-@admin_required
-def admin_unlock():
-    st = load_state(); st["locked"] = False; save_state(st); return jsonify({"ok": True,"locked": False})
-
-# ---------- MOTD Config ----------
+# ---------- MOTD ----------
 DEFAULT_MOTD = {
     "ascii": r"""
    _           _        _        _           _ _       
@@ -484,7 +472,7 @@ DEFAULT_MOTD = {
 """.strip("\n"),
     "list": [
         "Welcome to your local AI terminal.",
-        "Tip: Drag & drop files into the chat for on-the-fly RAG.",
+        "Drag & drop files for RAG.",
         "Admin: /admin (host-only)."
     ]
 }
@@ -525,57 +513,23 @@ def _uptime_str():
             started = int((DATA / ".server_started").read_text()) if (DATA/".server_started").exists() else int(time.time())
             secs = int(time.time() - started)
             (DATA/".server_started").write_text(str(started))
-    d, r = divmod(secs, 86400)
-    h, r = divmod(r, 3600)
-    m, s = divmod(r, 60)
-    out=[]
-    if d: out.append(f"{d}d")
-    if h: out.append(f"{h}h")
-    if m: out.append(f"{m}m")
-    out.append(f"{s}s")
+    d, r = divmod(secs, 86400); h, r = divmod(r, 3600); m, s = divmod(r, 60)
+    out=[]; 
+    if d: out.append(f"{d}d"); 
+    if h: out.append(f"{h}h"); 
+    if m: out.append(f"{m}m"); 
+    out.append(f"{s}s"); 
     return " ".join(out)
-
-def _suggest_aesthetic_from_model(start_text, lore_snips):
-    """Try to get tags like: neon|cyberpunk|parchment|noir|forest|terminal"""
-    cfg = load_providers(); cur = cfg.get("current","ollama")
-    try:
-        if cur == "ollama":
-            base = cfg["ollama"]["api_base"].rstrip("/")
-            prompt = (
-                "Given the following text and lore, output 1-3 short aesthetic tags (lowercase, hyphenated), comma-separated. "
-                "Examples: neon, cyberpunk, parchment, noir, mossy-ruin, terminal, retro-green.\n\n"
-                f"TEXT:\n{start_text}\n\nLORE:\n{lore_snips}\n\nTAGS: "
-            )
-            r = requests.post(f"{base}/api/generate",
-                              json={"model":"llama3.1:8b","prompt":prompt,"stream":False}, timeout=12)
-            r.raise_for_status()
-            raw = r.json().get("response","")
-            tags = [t.strip().lower() for t in raw.split(",") if 1<=len(t.strip())<=24][:3]
-            return tags or None
-        else:
-            # OpenRouter/Chutes minimal call
-            url = load_providers()[cur]["api_base"].rstrip("/") + "/chat/completions"
-            body = {"model":"gpt-3.5-turbo","messages":[
-                {"role":"system","content":"Output only comma-separated short aesthetic tags (lowercase)."},
-                {"role":"user","content": f"TEXT:\n{start_text}\n\nLORE:\n{lore_snips}\n\nTAGS:"}
-            ], "stream": False}
-            r = requests.post(url, json=body, headers=headers_for(cur, load_providers()), timeout=12)
-            r.raise_for_status()
-            txt = r.json()["choices"][0]["message"]["content"]
-            tags = [t.strip().lower() for t in txt.split(",") if 1<=len(t.strip())<=24][:3]
-            return tags or None
-    except Exception:
-        return None
 
 def _heuristic_aesthetic(start_text, lore_snips):
     t = (start_text + " " + lore_snips).lower()
     buckets = [
-        (["neon","cyber","night","neon-lit","matrix","neotokyo"], "neon"),
-        (["forest","grove","moss","druid","herb","sprout"], "mossy-ruin"),
-        (["ink","scroll","ancient","parchment","manuscript"], "parchment"),
-        (["noir","rain","cigarette","detective","alley"], "noir"),
+        (["neon","cyber","night","matrix","tokyo"], "neon"),
+        (["forest","moss","grove","druid"], "mossy-ruin"),
+        (["scroll","ancient","parchment","ink"], "parchment"),
+        (["noir","rain","detective","alley"], "noir"),
         (["terminal","retro","vt100","green"], "terminal"),
-        (["sand","dune","desert","spice"], "dunes"),
+        (["dune","sand","spice"], "dunes"),
     ]
     hits = [tag for keys, tag in buckets if any(k in t for k in keys)]
     return list(dict.fromkeys(hits))[:3] or ["terminal"]
@@ -584,12 +538,9 @@ def _heuristic_aesthetic(start_text, lore_snips):
 def api_motd():
     th = get_active_theme() or DEFAULT_THEME
     app_name = th.get("app_name","Local Terminal Chat")
-
     cfg = load_json(MOTD_FILE, DEFAULT_MOTD)
     ascii_art = cfg.get("ascii") or DEFAULT_MOTD["ascii"]
     items = list(cfg.get("list") or [])
-
-    # dynamic system items
     host = socket.gethostname()
     os_name = f"{platform.system()} {platform.release()}"
     py = platform.python_version()
@@ -601,37 +552,20 @@ def api_motd():
         items = items + [f"Memory: {_fmt_bytes(vm.used)} / {_fmt_bytes(vm.total)}", f"Uptime: {uptime}"]
     else:
         items = items + [f"Uptime: {uptime}"]
-
-    # aesthetic suggestion from first user message + lore snippets
-    # read last conv if any thread is provided
-    start_text = ""
-    lore_snips = ""
-    thread_id = request.args.get("thread_id")
-    profile_id = request.args.get("profile_id", type=int)
+    # crude aesthetic suggestion
+    start_text = ""; lore_snips = ""
+    thread_id = request.args.get("thread_id"); profile_id = request.args.get("profile_id", type=int)
     if thread_id and profile_id:
         conv = load_conv(thread_id)
         for m in conv.get("messages", []):
-            if m.get("role") == "user":
-                start_text = m.get("content","")[:1500]; break
-        # Aggregate quick lore
+            if m.get("role") == "user": start_text = m.get("content","")[:1200]; break
         for f in LORE_DIR.glob("*.json"):
-            db = load_json(f, {})
-            for c in (db.get("chunks") or [])[:2]:
-                lore_snips += " " + c.get("text","")[:400]
-
-    tags = _suggest_aesthetic_from_model(start_text, lore_snips) or _heuristic_aesthetic(start_text, lore_snips)
-
-    # build combined left/right ascii + info like neofetch
+            db = load_json(f, {}); 
+            for c in (db.get("chunks") or [])[:1]:
+                lore_snips += " " + c.get("text","")[:300]
+    tags = _heuristic_aesthetic(start_text, lore_snips)
     left_lines = (ascii_art + f"\n{app_name}").splitlines()
-    right_lines = [
-        f"Host     : {host}",
-        f"OS       : {os_name}",
-        f"CPU      : {cpu}",
-        f"Python   : {py}",
-        f"Cols     : {cols}",
-        f"Style    : {', '.join(tags)}",
-    ] + [f"- {x}" for x in items[:8]]
-
+    right_lines = [f"Host     : {host}", f"OS       : {os_name}", f"CPU      : {cpu}", f"Python   : {py}", f"Cols     : {cols}", f"Style    : {', '.join(tags)}"] + [f"- {x}" for x in items[:8]]
     width_left = max(len(s) for s in left_lines) if left_lines else 0
     rows = max(len(left_lines), len(right_lines))
     out=[]
@@ -639,14 +573,7 @@ def api_motd():
         l = left_lines[i] if i < len(left_lines) else ""
         r = right_lines[i] if i < len(right_lines) else ""
         out.append(l.ljust(width_left+2) + r)
-
-    return jsonify({
-        "ascii": "\n".join(out),
-        "app_name": app_name,
-        "theme": th.get("slug","default"),
-        "color": th.get("colors",{}).get("accent","#62ff80"),
-        "tags": tags
-    })
+    return jsonify({"ascii":"\n".join(out), "app_name":app_name, "theme":th.get("slug","default"), "color": th.get("colors",{}).get("accent","#62ff80"), "tags": tags})
 
 # ---------- Profiles & threads ----------
 @app.route("/api/me", methods=["GET"])
@@ -706,28 +633,127 @@ def new_thread():
     save_conv(tid, {"messages": []})
     return jsonify({"thread_id": tid, "title": title})
 
-# ---------- RPG STATUS (per profile_id + thread_id) ----------
+# ---------- RPG SHEET + METABOLISM ----------
 def rpg_path(profile_id, thread_id):
     p = RPG_DIR / f"{profile_id}_{thread_id}.json"
     if not p.exists():
-        # initialize a blank sheet
-        blank = {
+        base = {
             "updated_at": int(time.time()),
+            "character": {"name":"", "desc":"", "height_cm": 175, "weight_kg": 70, "bmr": 1800, "custom_targets": False},
+            # live nutrients (current reserves/levels; 0-100 scale except calories/water absolute)
+            "nutrients": {
+                "calories": 1800,       # kcal current energy reserve proxy
+                "protein_g": 50,        # grams
+                "water_ml": 1500,       # ml
+                "vitamins": 80,         # 0-200 (100=ideal)
+                "micronutrients": 80    # 0-200
+            },
+            # daily targets (derived or manual)
+            "targets": {
+                "calories": 2200, "protein_g": 75, "water_ml": 2500, "vitamins": 100, "micronutrients": 100
+            },
+            "activity": "rest",  # rest, walk, run, combat
             "health": [],  # wounds: {id, part, kind, severity(0-100), bleeding(0-3), pain(0-3)}
-            "bowels": 20,  # 0-100
-            "bladder": 20, # 0-100
-            "hunger": 20,  # 0-100 (0 full, 100 starving)
-            "thirst": 20,  # 0-100
-            "calories": 2000,
-            "hydration_ml": 2000,
-            "inventory": [] # {id, name, qty, weight}
+            "bowels": 20, "bladder": 20,
+            "hunger": 20, "thirst": 20,  # UI feel
+            "inventory": [],
+            "debuffs": []  # computed each tick: {id, name, severity, text}
         }
-        save_json(p, blank)
+        save_json(p, base)
     return p
 
 def load_rpg(profile_id, thread_id): return load_json(rpg_path(profile_id, thread_id), {})
 def save_rpg(profile_id, thread_id, obj): save_json(rpg_path(profile_id, thread_id), obj)
 
+def calc_bmr(height_cm, weight_kg):
+    # Simple Mifflin-St Jeor without age/sex; good enough for gamey scaling
+    return int(10*weight_kg + 6.25*height_cm + 5*170 - 161)  # assume age 30-ish; tweak constant to taste
+
+def _clamp(v, lo, hi): return max(lo, min(hi, v))
+
+def _nonlinear_decay(base, factor, power=1.2):
+    # decays faster as level rises (or factor rises), gentle curve
+    return base * (factor ** power)
+
+def _apply_debuffs(sheet):
+    debuffs = []
+    N, T = sheet["nutrients"], sheet["targets"]
+    # Ratios vs targets
+    r_cal = (N["calories"] / max(1, T["calories"]))
+    r_pro = (N["protein_g"] / max(1, T["protein_g"]))
+    r_wat = (N["water_ml"] / max(1, T["water_ml"]))
+    r_vit = (N["vitamins"] / max(1, T["vitamins"]))
+    r_mic = (N["micronutrients"] / max(1, T["micronutrients"]))
+
+    # Underconsumption
+    if r_cal < 0.5: debuffs.append({"id":"cal_def","name":"Caloric Deficit","severity": int((0.5-r_cal)*100), "text":"Fatigue, slower actions."})
+    if r_pro < 0.6: debuffs.append({"id":"pro_def","name":"Protein Low","severity": int((0.6-r_pro)*100), "text":"Healing slowed; muscle loss risk."})
+    if r_wat < 0.6: debuffs.append({"id":"dehydr","name":"Dehydration","severity": int((0.6-r_wat)*120), "text":"Dizziness; action penalties."})
+    if r_vit < 0.5: debuffs.append({"id":"vit_def","name":"Vitamin Deficiency","severity": int((0.5-r_vit)*120), "text":"Disease risk; poor immunity."})
+    if r_mic < 0.5: debuffs.append({"id":"mic_def","name":"Micronutrient Def.","severity": int((0.5-r_mic)*120), "text":"Anemia-like symptoms."})
+
+    # Overconsumption
+    if r_cal > 1.6: debuffs.append({"id":"cal_over","name":"Overfed","severity": int((r_cal-1.6)*100), "text":"Sluggish; encumbrance penalty."})
+    if r_pro > 2.0: debuffs.append({"id":"pro_over","name":"Protein Excess","severity": int((r_pro-2.0)*100), "text":"Kidney strain."})
+    if r_wat > 1.8: debuffs.append({"id":"overhyd","name":"Overhydration","severity": int((r_wat-1.8)*120), "text":"Hyponatremia risk."})
+    if r_vit > 2.0: debuffs.append({"id":"vit_tox","name":"Hypervitaminosis","severity": int((r_vit-2.0)*100), "text":"Nausea; toxicity."})
+    if r_mic > 2.2: debuffs.append({"id":"mic_tox","name":"Mineral Toxicity","severity": int((r_mic-2.2)*120), "text":"GI distress."})
+
+    # Hydration extra from bleeding
+    bleeding = sum(w.get("bleeding",0) for w in sheet.get("health",[]))
+    if bleeding >= 2:
+        debuffs.append({"id":"hem","name":"Hemorrhage","severity": bleeding*20, "text":"Losing fluids & stability."})
+
+    # Bowels/bladder discomfort
+    if sheet.get("bowels",0) >= 80: debuffs.append({"id":"bow","name":"Bowel Urgency","severity": sheet["bowels"]-70, "text":"Concentration penalties."})
+    if sheet.get("bladder",0) >= 80: debuffs.append({"id":"bla","name":"Bladder Pressure","severity": sheet["bladder"]-70, "text":"Movement penalties."})
+
+    sheet["debuffs"] = debuffs
+
+def _tick_metabolism(sheet, minutes=5):
+    """Advance metabolism by ~minutes; non-linear decay & passive accumulation of needs."""
+    N, T = sheet["nutrients"], sheet["targets"]
+    act = sheet.get("activity","rest")
+    act_factor = {"rest":1.0, "walk":1.3, "run":1.8, "combat":2.2}.get(act, 1.0)
+
+    # caloric burn ~ BMR scaled + activity; convert minutes to fraction of day
+    bmr = max(1200, int(sheet["character"].get("bmr", 1800)))
+    burn_kcal = (bmr * act_factor) * (minutes / (24*60))
+    # non-linear tweak (harder when already depleted -> fainty)
+    burn_kcal *= (1.0 + 0.25 * (1.0 if N["calories"] < T["calories"]*0.6 else 0.0))
+    N["calories"] = max(0, N["calories"] - burn_kcal)
+
+    # hydration loss
+    base_h2o = 1200  # ml/day baseline loss
+    bleed = sum(w.get("bleeding",0) for w in sheet.get("health",[]))
+    los_ml = (base_h2o * act_factor) * (minutes/(24*60))
+    los_ml = _nonlinear_decay(los_ml, 1 + 0.2*bleed, power=1.15)
+    N["water_ml"] = max(0, N["water_ml"] - los_ml)
+
+    # protein/vitamins/micros degrade slowly (storage depletion)
+    def slow_drop(value, target, rate_per_day, power=1.05):
+        drop = _nonlinear_decay(rate_per_day*(minutes/(24*60)), (value/max(1,target)) if target>0 else 1.0, power)
+        return max(0, value - drop)
+
+    N["protein_g"] = slow_drop(N["protein_g"], T["protein_g"], rate_per_day=20)
+    # vitamins/micros on 0-200 scale; 100 is ideal
+    N["vitamins"] = slow_drop(N["vitamins"], 100, rate_per_day=8)
+    N["micronutrients"] = slow_drop(N["micronutrients"], 100, rate_per_day=8)
+
+    # “UI feel” dials: hunger/thirst bars (0 good, 100 bad)
+    sheet["hunger"] = _clamp(sheet.get("hunger",20) + (burn_kcal / max(1, T["calories"])) * 8, 0, 100)
+    sheet["thirst"] = _clamp(sheet.get("thirst",20) + (los_ml / max(1, T["water_ml"])) * 12, 0, 100)
+    sheet["bowels"] = _clamp(sheet.get("bowels",20) + minutes*0.2, 0, 100)
+    sheet["bladder"] = _clamp(sheet.get("bladder",20) + minutes*0.35, 0, 100)
+
+    _apply_debuffs(sheet)
+    sheet["updated_at"] = int(time.time())
+
+def rpg_sheet(profile_id, thread_id):
+    p = RPG_DIR / f"{profile_id}_{thread_id}.json"
+    return p
+
+# GET current
 @app.route("/api/rpg/status", methods=["GET"])
 @login_required
 def rpg_get():
@@ -736,6 +762,7 @@ def rpg_get():
     sheet = load_rpg(profile_id, thread_id)
     return jsonify(sheet)
 
+# PATCH/SET sections
 @app.route("/api/rpg/status", methods=["POST"])
 @login_required
 def rpg_set():
@@ -743,28 +770,84 @@ def rpg_set():
     thread_id = request.args.get("thread_id")
     patch = request.get_json(force=True)
     sheet = load_rpg(profile_id, thread_id)
-
-    # allow replacing sections or full fields
-    for k in ("health","bowels","bladder","hunger","thirst","calories","hydration_ml","inventory"):
+    for k in ("character","nutrients","targets","activity","health","bowels","bladder","hunger","thirst","inventory"):
         if k in patch: sheet[k] = patch[k]
+    _apply_debuffs(sheet)
     sheet["updated_at"] = int(time.time())
     save_rpg(profile_id, thread_id, sheet)
     return jsonify({"ok": True})
 
-def _auto_tick_rpg(profile_id, thread_id, sheet, minutes=5):
-    """very simple metabolism tick per turn"""
-    # baseline increases
-    sheet["hunger"] = min(100, sheet.get("hunger",20) + 2)
-    sheet["thirst"] = min(100, sheet.get("thirst",20) + 3)
-    sheet["bowels"] = min(100, sheet.get("bowels",20) + 1)
-    sheet["bladder"] = min(100, sheet.get("bladder",20) + 2)
-    # bleeding escalates thirst and hunger slightly
-    bleeding = sum(w.get("bleeding",0) for w in sheet.get("health",[]))
-    if bleeding:
-        sheet["thirst"] = min(100, sheet["thirst"] + bleeding)
-        sheet["hunger"] = min(100, sheet["hunger"] + max(0, bleeding-1))
-    sheet["updated_at"] = int(time.time())
+# Food/drink apply (optional helper)
+@app.route("/api/rpg/consume", methods=["POST"])
+@login_required
+def rpg_consume():
+    """Body: {profile_id, thread_id, item: {name, calories, protein_g, water_ml, vitamins, micronutrients}}"""
+    js = request.get_json(force=True)
+    profile_id = int(js.get("profile_id")); thread_id = js.get("thread_id")
+    item = js.get("item") or {}
+    sheet = load_rpg(profile_id, thread_id)
+    N = sheet["nutrients"]
+    N["calories"] += float(item.get("calories",0))
+    N["protein_g"] += float(item.get("protein_g",0))
+    N["water_ml"] += float(item.get("water_ml",0))
+    N["vitamins"] = _clamp(N["vitamins"] + float(item.get("vitamins",0)), 0, 240)
+    N["micronutrients"] = _clamp(N["micronutrients"] + float(item.get("micronutrients",0)), 0, 240)
+    # eating relieves hunger/thirst bars a bit
+    sheet["hunger"] = _clamp(sheet["hunger"] - (float(item.get("calories",0))/max(1,sheet["targets"]["calories"])) * 18, 0, 100)
+    sheet["thirst"] = _clamp(sheet["thirst"] - (float(item.get("water_ml",0))/max(1,sheet["targets"]["water_ml"])) * 22, 0, 100)
+    _apply_debuffs(sheet); sheet["updated_at"] = int(time.time())
     save_rpg(profile_id, thread_id, sheet)
+    return jsonify({"ok": True, "sheet": sheet})
+
+# Character creation
+@app.route("/api/rpg/create_character", methods=["POST"])
+@login_required
+def rpg_create_character():
+    """
+    Body: {
+      profile_id, thread_id,
+      name, desc, height_cm, weight_kg,
+      mode: "derived"|"manual",
+      targets?: {calories, protein_g, water_ml, vitamins, micronutrients}
+    }
+    """
+    js = request.get_json(force=True)
+    profile_id = int(js.get("profile_id")); thread_id = js.get("thread_id")
+    name = (js.get("name") or "").strip()[:60]
+    desc = (js.get("desc") or "").strip()[:2000]
+    height_cm = int(js.get("height_cm") or 170)
+    weight_kg = int(js.get("weight_kg") or 70)
+    mode = (js.get("mode") or "derived")
+
+    sheet = load_rpg(profile_id, thread_id)
+    bmr = calc_bmr(height_cm, weight_kg)
+    if mode == "manual" and isinstance(js.get("targets"), dict):
+        targets = js["targets"]
+        T = {
+            "calories": int(targets.get("calories", max(1600, bmr))),
+            "protein_g": int(targets.get("protein_g", 60)),
+            "water_ml": int(targets.get("water_ml", 2200)),
+            "vitamins": int(targets.get("vitamins", 100)),
+            "micronutrients": int(targets.get("micronutrients",100)),
+        }
+        custom = True
+    else:
+        # derived: scale simple multipliers from BMR & body size
+        T = {
+            "calories": int(max(1600, bmr * 1.1)),
+            "protein_g": int(max(50, weight_kg * 1.0)),  # 1g/kg baseline
+            "water_ml": int(30 * weight_kg + 500),       # ~30ml/kg + fudge
+            "vitamins": 100, "micronutrients": 100
+        }
+        custom = False
+
+    sheet["character"] = {"name": name, "desc": desc, "height_cm": height_cm, "weight_kg": weight_kg, "bmr": bmr, "custom_targets": custom}
+    sheet["targets"] = T
+    # seed nutrients around targets (slightly under to prompt eating)
+    sheet["nutrients"] = {"calories": int(T["calories"]*0.8), "protein_g": int(T["protein_g"]*0.7), "water_ml": int(T["water_ml"]*0.7), "vitamins": 90, "micronutrients": 90}
+    _apply_debuffs(sheet); sheet["updated_at"] = int(time.time())
+    save_rpg(profile_id, thread_id, sheet)
+    return jsonify({"ok": True, "sheet": sheet})
 
 # ---------- Telemetry ----------
 def _guess_os(ua: str) -> str:
@@ -842,7 +925,7 @@ def chat():
     user_msgs = payload.get("messages", [])
     options = payload.get("options")
 
-    # Guard: thread belongs to current user
+    # Validate ownership
     con = db(); cur = con.cursor()
     cur.execute("""SELECT t.id, p.kind FROM threads t 
                    JOIN profiles p ON p.id=t.profile_id 
@@ -852,12 +935,11 @@ def chat():
     if not row: return ("Forbidden", 403)
     profile_kind = row["kind"]
 
-    # Save incoming
     conv = load_conv(thread_id)
     conv["messages"].extend(user_msgs)
     recent_msgs = conv["messages"][-18:]
 
-    # Parse structured actions
+    # Structured actions passthrough
     try:
         last = user_msgs[-1]["content"]
         if last.lstrip().startswith("{"):
@@ -868,23 +950,11 @@ def chat():
         pass
 
     user_turn_text = recent_msgs[-1]["content"] if recent_msgs else ""
-    rag_ctx = retrieve_lore(lore_names, user_turn_text, k=6)  # lore first
-    docs_ctx = None
-    # You can also add RAG-by-thread if you kept it earlier:
-    if (RAG_DIR / f"{profile_id}_{thread_id}.json").exists():
-        docs_ctx = load_json(RAG_DIR / f"{profile_id}_{thread_id}.json", {}).get("docs")
-    rag_concat = None
-    if docs_ctx:
-        # quick keyword RAG
-        rag_concat = "[DOCS ATTACHED]\n" + "\n\n".join(f"[{d.get('name')}]" for d in docs_ctx[:6])
-
+    lore_ctx = retrieve_lore(lore_names, user_turn_text, k=6)
     base_messages = inject_memory(recent_msgs)
-    if rag_concat:
-        base_messages = [{"role":"system", "content": rag_concat}] + base_messages
-    if rag_ctx:
-        base_messages = [{"role":"system", "content":"Lore Context (authoritative canon; prefer over guesses):\n"+rag_ctx}] + base_messages
+    if lore_ctx:
+        base_messages = [{"role":"system", "content":"Lore Context (authoritative canon; prefer over guesses):\n"+lore_ctx}] + base_messages
 
-    # Upstream
     try:
         if provider=="ollama":
             upstream = chat_stream_ollama(model, base_messages); mode="ollama"
@@ -924,12 +994,13 @@ def chat():
         conv["messages"].append({"role":"assistant","content": full})
         save_conv(thread_id, conv)
 
-        # simple per-turn RPG tick
+        # per-turn tick for RPG
         if profile_kind == "rpg":
             sheet = load_rpg(profile_id, thread_id)
-            _auto_tick_rpg(profile_id, thread_id, sheet)
+            _tick_metabolism(sheet, minutes=5)
+            save_rpg(profile_id, thread_id, sheet)
 
-        # update cross-chat memory
+        # cross-chat memory
         try:
             transcript = "\n".join(m["role"] + ": " + m["content"] for m in conv["messages"][-40:])
             mem = load_memory()
