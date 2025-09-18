@@ -1,114 +1,281 @@
-/* styles.css — terminal-flavored, themeable via CSS vars */
-:root{
-  --bg:#0a0c0a;
-  --fg:#c8facc;
-  --muted:#8fb99b;
-  --panel:#0f110f;
-  --border:#1a1f1a;
-  --accent:#62ff80;
-  --danger:#ff6b6b;
-  --link:#7fe0ff;
-  --radius:8px;
+/* ===========================
+   Global Terminal Aesthetic
+   =========================== */
+
+:root {
+  /* Fallbacks – your active theme can override via inline style or custom CSS */
+  --bg: #0a0c0a;
+  --fg: #c8facc;
+  --muted: #8fb99b;
+  --panel: #0f110f;
+  --border: #1a1f1a;
+  --accent: #62ff80;       /* primary accent (links, headers, glow) */
+  --danger: #ff6b6b;
+  --link: #7fe0ff;
+
+  --radius: 8px;
+  --shadow: 0 0 0 1px var(--border), 0 0 24px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
-* { box-sizing: border-box }
-html, body { height: 100% }
-body{
-  background:var(--bg);
-  color:var(--fg);
-  font:14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  margin:0;
-  line-height:1.45;
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "VT323", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 18px; /* VT323 looks best a bit larger */
+  line-height: 1.25;
 }
 
-a { color: var(--link); text-decoration: none; border-bottom:1px dotted var(--link) }
-a:hover { opacity:.9 }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
-.panel{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:var(--radius);
+code, pre, kbd { font-family: "VT323", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Scrollbars (WebKit) */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Inputs / Buttons */
+input, textarea, select, button {
+  background: #00000055;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 1rem;
+}
+input:focus, textarea:focus, select:focus, button:focus {
+  outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
-.topbar{
-  display:flex; align-items:center; gap:12px;
-  padding:8px 10px; margin:8px; position:sticky; top:0; z-index:10;
+button {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
-.brand{ display:flex; align-items:center; gap:8px; font-weight:700 }
-.grow{ flex:1 }
-.controls{ display:flex; flex-wrap:wrap; gap:8px; align-items:center }
-.controls label{ display:flex; gap:6px; align-items:center }
-.controls select, .controls button, .controls a.sm {
-  background:#0c0f0c; color:var(--fg);
-  border:1px solid var(--border); border-radius:var(--radius);
-  padding:6px 8px; font-size:13px;
-}
-.controls button.sm, .controls a.sm { padding:4px 8px }
-.controls a.sm { display:inline-block }
+button:hover { filter: brightness(1.1); }
 
-main{ padding:8px; display:flex; flex-direction:column; gap:8px; height: calc(100vh - 70px) }
+/* Utility */
+.muted { color: var(--muted); }
+.accent { color: var(--accent); }
+.danger { color: var(--danger); }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.gap-sm { gap: 6px; }
+.gap-md { gap: 12px; }
+.gap-lg { gap: 18px; }
 
-.log{
-  flex:1; overflow:auto; padding:10px; white-space:pre-wrap; word-wrap:break-word;
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+.card { padding: 10px; border-radius: var(--radius); border: 1px solid var(--border); background: #0c0f0c; }
+
+/* Topbar / Shell */
+.topbar {
+  position: sticky; top: 0; z-index: 900;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; background: #080a08; border-bottom: 1px solid var(--border);
+}
+.topbar .spacer { flex: 1; }
+
+/* Buttons-as-links */
+.buttonlike {
+  display: inline-block;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--fg);
+  text-decoration: none;
+}
+.buttonlike:hover { filter: brightness(1.1); }
+
+/* ===========================
+   Chat UI (generic)
+   =========================== */
+
+.chat-wrap { max-width: 1100px; margin: 16px auto; padding: 0 12px; }
+.chat-stream {
+  background: #080a08;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  min-height: 240px;
+}
+.msg { margin: 8px 0; }
+.msg .role {
+  display: inline-block;
+  min-width: 82px;
+  padding-right: 8px;
+  color: var(--muted);
+}
+.msg .bubble {
+  display: inline-block;
+  background: #0e110e;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.msg.user .bubble { border-color: color-mix(in srgb, var(--link) 40%, var(--border)); }
+.msg.assistant .bubble { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+
+.chat-input {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+.chat-input textarea { width: 100%; min-height: 64px; resize: vertical; }
+
+/* Drag & Drop highlight */
+.drop-target {
+  outline: 2px dashed color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 4px;
 }
 
-.row.msg{ display:grid; grid-template-columns: 92px 1fr; gap:8px; margin:10px 0; align-items:start }
-.row.msg .label{ color:var(--muted); text-align:right; padding-top:4px; font-weight:700; opacity:.9 }
-.row.msg .bubble{
-  border:1px solid var(--border); border-radius:var(--radius);
-  padding:10px 12px; background:#0c0f0c;
+/* ===========================
+   Admin & Tables
+   =========================== */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #0d100d;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
-.row.msg.user .bubble{ border-color: var(--accent) }
-.row.msg.system .bubble{ opacity:.9; font-style:italic }
-.code .bubble, .codeblock{
+.table th, .table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.table th { text-align: left; color: var(--accent); }
+.table tr:hover td { background: #0f120f; }
+
+/* Dashboard badges */
+.badge {
+  display: inline-block; padding: 2px 6px; border: 1px solid var(--border);
+  border-radius: 999px; font-size: 0.85rem; background: #0b0e0b;
+}
+
+/* ===========================
+   MOTD (neofetch-style)
+   =========================== */
+
+.motd-panel {
+  font-family: "VT323", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  margin: 8px auto;
+  max-width: 1100px;
+}
+.motd-ascii {
+  margin: 0 0 6px 0;
+  line-height: 1.05;
+  white-space: pre;
+  tab-size: 4;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.motd-ascii::selection { background: var(--accent); color: #000; }
+.motd-list { margin: 0 0 0 14px; padding: 0; }
+.motd-list li { margin: 2px 0; }
+
+/* ===========================
+   RPG Sidebar (status)
+   =========================== */
+
+.rpg-side {
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  width: 320px;
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  background:#0c0f0c; border:1px dashed var(--border);
+  z-index: 1000;
+  padding: 8px 10px;
+  box-shadow: var(--shadow);
+}
+.rpg-side h3 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  color: var(--accent);
+}
+.rpg-sec { margin-bottom: 8px; }
+.rpg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.rpg-l { display: flex; gap: 6px; align-items: center; margin: 2px 0; }
+.rpg-l input[type="number"], .rpg-grid input[type="number"] { width: 100%; }
+.rpg-wound { border: 1px dashed var(--border); padding: 4px; margin: 4px 0; }
+.rpg-inv-row { display: grid; grid-template-columns: 1fr 44px 56px 26px; gap: 6px; align-items: center; margin: 2px 0; }
+.rpg-mini { font-size: 11px; color: var(--muted); }
+.rpg-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.debuff {
+  font-size: 12px;
+  margin: 2px 0;
+  padding: 2px 4px;
+  border-left: 3px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
-.composer{ display:flex; gap:8px; padding:8px }
-.composer textarea{
-  flex:1; min-height:44px; max-height:180px; resize:vertical;
-  background:#0c0f0c; color:var(--fg); border:1px solid var(--border); border-radius:var(--radius);
-  padding:10px 12px;
+/* ===========================
+   Character Creator
+   =========================== */
+
+.wrap { max-width: 1100px; margin: 16px auto; padding: 0 12px; }
+label { display: flex; flex-direction: column; gap: 4px; }
+
+/* ===========================
+   File Drop Zone (RAG)
+   =========================== */
+
+.dropzone {
+  border: 1px dashed var(--border);
+  background: #0c0f0c;
+  padding: 10px;
+  border-radius: var(--radius);
+  text-align: center;
 }
-.composer button{ min-width:90px }
-
-button{
-  background:#0c0f0c; color:var(--fg);
-  border:1px solid var(--border); border-radius:var(--radius);
-  padding:8px 10px; cursor:pointer;
-}
-button.primary{ background:var(--accent); color:#0a0c0a; border:none; font-weight:700 }
-button.danger{ background:var(--danger); color:#0a0c0a; border:none; font-weight:700 }
-button:hover{ filter:brightness(1.03) }
-
-input, select{
-  background:#0c0f0c; color:var(--fg); border:1px solid var(--border); border-radius:var(--radius);
-  padding:6px 8px;
+.dropzone.hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-/* Modals */
-.modal{
-  position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
-  background: rgba(0,0,0,0.4);
+/* ===========================
+   Toasts / Popovers (generic)
+   =========================== */
+
+.toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: #0b0e0b; color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 12px; z-index: 1200;
+  box-shadow: var(--shadow);
 }
-.modal[hidden]{ display:none }
-.modal .panel{ width:min(780px, 92vw); padding:10px 12px }
-.modal header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px }
-.modal section p{ margin:6px 0 }
-.modal .row.btns{ display:flex; gap:8px; margin-top:8px }
 
-/* Drag UI hint */
-body.dragging { outline:2px dashed var(--accent); outline-offset:-6px }
+/* ===========================
+   Responsive tweaks
+   =========================== */
 
-/* Scrollbar (nice-to-have) */
-.log::-webkit-scrollbar { width: 10px }
-.log::-webkit-scrollbar-thumb { background: #1b251b; border-radius: 6px; border:1px solid #223322 }
-.log::-webkit-scrollbar-track { background: #0c0f0c }
-
-/* Small screens */
-@media (max-width: 720px){
-  .row.msg{ grid-template-columns: 76px 1fr }
-  .controls{ gap:6px }
-  .topbar{ flex-wrap:wrap }
+@media (max-width: 900px) {
+  .rpg-side { position: static; width: auto; max-height: none; margin: 8px 12px; }
+  .chat-wrap { margin: 8px auto; }
 }
